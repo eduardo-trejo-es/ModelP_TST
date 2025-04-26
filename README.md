@@ -28,30 +28,16 @@ Financial time series forecasting (e.g., oil prices, stocks).
 Industrial or engineering signal forecasting (e.g., temperature control systems, sensor data).
 
 
-ModelP_TST/
-│
-├── README.md          # Project overview and instructions
-├── requirements.txt   # Python dependencies
-├── config/             # Configuration files (hyperparameters, model settings)
-│    └── config.yaml
-├── data/               # Datasets (raw and processed)
-│    ├── raw/
-│    └── processed/
-├── notebooks/          # Jupyter notebooks for exploration, testing, visualization
-│    └── 01_initial_exploration.ipynb
-├── src/                # Source code
-│    ├── models/        # Model architecture (PatchTST implementation/adaptation)
-│    │    └── patchtst.py
-│    ├── data_utils/    # Data loading, preprocessing, patching
-│    │    └── dataset.py
-│    ├── train/         # Training loop, loss functions, evaluation metrics
-│    │    ├── trainer.py
-│    │    └── metrics.py
-│    └── utils/         # General utilities (plots, logs, etc.)
-│         └── plotting.py
-├── experiments/        # Training results, saved models, logs
-│    ├── models/
-│    └── logs/
-└── scripts/            # Scripts to run training, evaluation
-     ├── train_model.py
-     └── evaluate_model.py
+
+===============================================
+Creer venv mac M1 arch -arm64 python3 -m venv .venv
+
+
+to activate the virtual environnement on mac : source .venv/bin/activate
+(on windows: source .venv/Scripts/activate )
+to desactivate the virtual environnement on mac : deactivate
+
+to update the requirements.txt: pip  freeze > requirements.txt
+to use it : pip install -r requirements-m1-clean.txt
+
+Local deploy
