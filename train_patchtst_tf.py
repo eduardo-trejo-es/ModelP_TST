@@ -6,14 +6,17 @@ import pickle
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from patchtst_tf_model import PatchTST, PatchEmbedding, TransformerEncoder
+from datetime import datetime
 
 # --------- CONFIGURACIÓN EXPERIMENTO ---------
-patch_len = 25
+patch_len = 15
 embed_dim = 512
-n_layers = 5
-dropout_rate = 0.3
-batch_size = 128
+n_layers = 4
+dropout_rate = 0.0
+batch_size = 64
 epochs = 30
+
+exp_num=9
 
 # Paths
 csv_path = "OIL_CRUDE/Id90/DataSet_lastPoppingColums.csv"
@@ -30,15 +33,20 @@ all_columns = df.columns.tolist()
 input_cols = all_columns[1:]  # Ignorar Date column
 target_col = 'Close'
 
-# --------- NORMALIZAR INPUTS ---------
-scaler = MinMaxScaler()
-df[input_cols] = scaler.fit_transform(df[input_cols])
+# --------- NORMALIZAR INPUTS Y TARGET ---------
+input_scaler = MinMaxScaler()
+df[input_cols] = input_scaler.fit_transform(df[input_cols])
 
-# Guardar scaler
+target_scaler = MinMaxScaler()
+df[[target_col]] = target_scaler.fit_transform(df[[target_col]])
+
+# Guardar scalers
 os.makedirs(os.path.dirname(scaler_save_path), exist_ok=True)
-with open(scaler_save_path, 'wb') as f:
-    pickle.dump(scaler, f)
-print(f"Scaler saved to: {scaler_save_path}")
+with open("Models/scaler_inputs.pkl", 'wb') as f:
+    pickle.dump(input_scaler, f)
+with open("Models/scaler_target.pkl", 'wb') as f:
+    pickle.dump(target_scaler, f)
+print("Scalers saved to: Models/scaler_inputs.pkl and scaler_target.pkl")
 
 # --------- PREPARAR DATA X, y ---------
 Seq_len = 80
@@ -68,19 +76,28 @@ model(dummy_input)
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-    loss='mse',
+    loss='mae',
     metrics=['mae']
 )
 model.summary()
 
+
+fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+os.makedirs(model_save_dir, exist_ok=True)
+
+"""if os.path.exists(experiments_log):
+    old = pd.read_csv(experiments_log)
+    exp_num = len(old) + 1
+else:
+    exp_num = 1"""
+
 # Model save path
-model_save_path = os.path.join(model_save_dir, f"best_patchtst_patch{patch_len}_embed{embed_dim}.keras")
+model_save_path = os.path.join(model_save_dir, f"patchtst_exp{exp_num}")
 
 # --------- CALLBACKS ---------
 callbacks = [
-    tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True),
-    tf.keras.callbacks.ModelCheckpoint(model_save_path, save_best_only=True),
-    tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=3)
+    tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True)
 ]
 
 # --------- ENTRENAR ---------
@@ -91,17 +108,15 @@ history = model.fit(
     callbacks=callbacks
 )
 
+model.export(model_save_path)
+
 # --------- EVALUACIÓN DIRECCIÓN ---------
 # Predicciones validación
 val_preds = model.predict(X_val)
 
 # Inverse transform
-close_idx = input_cols.index('Close')
-close_min = scaler.data_min_[close_idx]
-close_max = scaler.data_max_[close_idx]
-
-val_preds_real = val_preds.flatten() * (close_max - close_min) + close_min
-val_reals_real = y_val * (close_max - close_min) + close_min
+val_preds_real = target_scaler.inverse_transform(val_preds)
+val_reals_real = target_scaler.inverse_transform(y_val.reshape(-1, 1))
 
 # Direcciones
 pred_dirs = np.sign(val_preds_real[1:] - val_preds_real[:-1])
@@ -121,9 +136,11 @@ print(f"RMSE: {rmse:.4f}")
 print(f"Precisión Dirección: {direction_accuracy*100:.2f}%")
 
 # --------- GUARDAR RESULTADO EXPERIMENTO ---------
-os.makedirs(model_save_dir, exist_ok=True)
+
 
 exp_data = pd.DataFrame([{
+    "Experimento": exp_num,
+    "Fecha": fecha,
     "Patch_len": patch_len,
     "Embed_dim": embed_dim,
     "N_layers": n_layers,
@@ -152,5 +169,5 @@ plt.xlabel('Epoch')
 plt.ylabel('MSE Loss')
 plt.legend()
 plt.grid()
-plt.savefig(f"Plots/training_loss_patchtst_patch{patch_len}_embed{embed_dim}.png")
+plt.savefig(f"Plots/training_loss_exp{exp_num}.png")
 plt.show()

@@ -66,6 +66,6 @@ class PatchTST(tf.keras.Model):
         return self.head(x)
 
 # Example to instantiate
-# model = PatchTST(seq_len=80, patch_len=25, input_dim=12)
+# model = PatchTST(seq_len=80, patch_len=25, input_dim=12, dropout_rate=0.3)
 # output = model(tf.random.normal((8, 80, 12)))
 # print(output.shape)  # -> (8, 1)
