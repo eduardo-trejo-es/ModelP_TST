@@ -9,13 +9,13 @@ from patchtst_tf_model import PatchTST, PatchEmbedding, TransformerEncoder
 from datetime import datetime
 
 # --------- CONFIGURACIÓN EXPERIMENTO ---------
-patch_len = 25
-embed_dim = 256
-n_layers = 2
-dropout_rate = 0.1
+patch_len = 10
+embed_dim = 128
+n_layers = 3
+dropout_rate = 0.2
 batch_size = 64
 epochs = 30
-exp_num=18
+exp_num = 25
 
 # Paths
 csv_path = "OIL_CRUDE/Id90/DataSet_lastPoppingColums.csv"
