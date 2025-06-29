@@ -7,7 +7,7 @@ import pickle
 from sklearn.preprocessing import MinMaxScaler
 from patchtst_tf_model import PatchTST, PatchEmbedding, TransformerEncoder
 
-exp=9
+exp=10
 # --------- CONFIGURACIÓN ---------
 model_path = "Models/patchtst_exp"+str(exp)
 input_scaler_path = "Models/scaler_inputs.pkl"
@@ -91,6 +91,13 @@ print(f"\nEvaluation Metrics:")
 print(f"Mean Absolute Error (MAE): {mae:.4f}")
 print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
 
+# --------- PRECISIÓN DIRECCIONAL ---------
+direction_real = np.sign(real_prices[1:] - real_prices[:-1])
+direction_pred = np.sign(predictions[1:] - predictions[:-1])
+direction_accuracy = np.mean(direction_real == direction_pred)
+
+print(f"Directional Accuracy: {direction_accuracy*100:.2f}%")
+
 # --------- PLOT ---------
 os.makedirs("Plots/", exist_ok=True)
 
@@ -102,5 +109,5 @@ plt.xlabel('Days')
 plt.ylabel('Price (USD)')
 plt.legend()
 plt.grid()
-plt.savefig("Plots/predictions_patchtst.png")
+plt.savefig(f"Plots/predictions_patchtst_exp{exp}.png")
 plt.show()

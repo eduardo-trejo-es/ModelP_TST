@@ -61,7 +61,7 @@ class PatchTST(tf.keras.Model):
         x = self.embedding(inputs)
         for encoder in self.encoder_layers:
             x = encoder(x, training=training)
-        x = tf.reduce_mean(x, axis=1)  # Global average pooling
+        x = x[:, 0, :]  # Use first patch (CLS token style)
         x = self.norm(x)
         return self.head(x)
 

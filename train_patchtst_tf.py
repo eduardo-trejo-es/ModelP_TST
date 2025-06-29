@@ -9,14 +9,13 @@ from patchtst_tf_model import PatchTST, PatchEmbedding, TransformerEncoder
 from datetime import datetime
 
 # --------- CONFIGURACIÓN EXPERIMENTO ---------
-patch_len = 15
-embed_dim = 512
-n_layers = 4
-dropout_rate = 0.0
+patch_len = 25
+embed_dim = 256
+n_layers = 2
+dropout_rate = 0.1
 batch_size = 64
 epochs = 30
-
-exp_num=9
+exp_num=18
 
 # Paths
 csv_path = "OIL_CRUDE/Id90/DataSet_lastPoppingColums.csv"
@@ -29,15 +28,22 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 # --------- CARGA DATA ---------
 df = pd.read_csv(csv_path)
+df['SMA_Close'] = df['Close'].rolling(window=10).mean().fillna(method='bfill')
+df['SMA_Close'] = df['Close'].rolling(window=10).mean().fillna(method='bfill')
 all_columns = df.columns.tolist()
 input_cols = all_columns[1:]  # Ignorar Date column
+if 'SMA_Close' not in input_cols:
+    input_cols.append('SMA_Close')
+if 'SMA_Close' not in input_cols:
+    input_cols.append('SMA_Close')
 target_col = 'Close'
 
 # --------- NORMALIZAR INPUTS Y TARGET ---------
 input_scaler = MinMaxScaler()
 df[input_cols] = input_scaler.fit_transform(df[input_cols])
 
-target_scaler = MinMaxScaler()
+from sklearn.preprocessing import StandardScaler
+target_scaler = StandardScaler()
 df[[target_col]] = target_scaler.fit_transform(df[[target_col]])
 
 # Guardar scalers
@@ -59,6 +65,7 @@ for i in range(len(df) - Seq_len - 1):
 
 X = np.array(X)
 y = np.array(y)
+print("y stats:", y.min(), y.max(), np.std(y))
 
 # Train/Validation split
 split_idx = int(0.8 * len(X))
@@ -76,7 +83,7 @@ model(dummy_input)
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-    loss='mae',
+    loss=tf.keras.losses.Huber(delta=1.0),
     metrics=['mae']
 )
 model.summary()
@@ -113,6 +120,7 @@ model.export(model_save_path)
 # --------- EVALUACIÓN DIRECCIÓN ---------
 # Predicciones validación
 val_preds = model.predict(X_val)
+print("Val preds (escalados):", val_preds[:10].flatten())
 
 # Inverse transform
 val_preds_real = target_scaler.inverse_transform(val_preds)
@@ -170,4 +178,16 @@ plt.ylabel('MSE Loss')
 plt.legend()
 plt.grid()
 plt.savefig(f"Plots/training_loss_exp{exp_num}.png")
+plt.show()
+
+# --------- PLOT VAL PREDS vs REALS ---------
+plt.figure(figsize=(12,5))
+plt.plot(val_reals_real[:100], label='Real')
+plt.plot(val_preds_real[:100], label='Predicted')
+plt.title('Val Predictions vs Real (primeros 100)')
+plt.xlabel('Timestep')
+plt.ylabel('Close')
+plt.legend()
+plt.grid()
+plt.savefig(f"Plots/val_preds_vs_real_exp{exp_num}.png")
 plt.show()
