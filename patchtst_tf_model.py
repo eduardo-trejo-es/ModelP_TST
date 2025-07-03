@@ -55,13 +55,17 @@ class PatchTST(tf.keras.Model):
             for _ in range(n_layers)
         ]
         self.norm = layers.LayerNormalization(epsilon=1e-6)
-        self.head = layers.Dense(1, kernel_regularizer=tf.keras.regularizers.l2(1e-4))
+        self.head = keras.Sequential([
+            layers.Dense(32, activation='relu'),
+            layers.Dropout(0.2),
+            layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(1e-4))
+        ])
 
     def call(self, inputs, training=False):
         x = self.embedding(inputs)
         for encoder in self.encoder_layers:
             x = encoder(x, training=training)
-        x = x[:, 0, :]  # Use first patch (CLS token style)
+        x = tf.reduce_mean(x, axis=1)  # Average over all patches
         x = self.norm(x)
         return self.head(x)
 

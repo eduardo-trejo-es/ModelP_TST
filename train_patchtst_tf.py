@@ -10,12 +10,12 @@ from datetime import datetime
 
 # --------- CONFIGURACIÓN EXPERIMENTO ---------
 patch_len = 10
-embed_dim = 128
+embed_dim = 160
 n_layers = 3
-dropout_rate = 0.2
+dropout_rate = 0.1
 batch_size = 64
 epochs = 30
-exp_num = 25
+exp_num = 32
 
 # Paths
 csv_path = "OIL_CRUDE/Id90/DataSet_lastPoppingColums.csv"
@@ -29,22 +29,31 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 # --------- CARGA DATA ---------
 df = pd.read_csv(csv_path)
 df['SMA_Close'] = df['Close'].rolling(window=10).mean().fillna(method='bfill')
-df['SMA_Close'] = df['Close'].rolling(window=10).mean().fillna(method='bfill')
-all_columns = df.columns.tolist()
-input_cols = all_columns[1:]  # Ignorar Date column
-if 'SMA_Close' not in input_cols:
-    input_cols.append('SMA_Close')
-if 'SMA_Close' not in input_cols:
-    input_cols.append('SMA_Close')
-target_col = 'Close'
+
+# Nuevas features técnicas
+df['Return_1D'] = df['Close'].pct_change().fillna(0)
+df['SMA_20'] = df['Close'].rolling(window=20).mean().fillna(method='bfill')
+df['SMA_Trend'] = df['SMA_20'].diff().fillna(0)
+df['Volatility_10'] = df['Close'].rolling(window=10).std().fillna(method='bfill')
+rolling_mean = df['Close'].rolling(20).mean()
+rolling_std = df['Close'].rolling(20).std()
+df['BB_rel_pos'] = ((df['Close'] - rolling_mean) / (2 * rolling_std)).fillna(0)
+
+df['Target_diff'] = df['Close'].shift(-1) - df['Close']
+# Target binario: dirección
+df['Target_dir'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+# Asegurar que Target_dir es 0/1 y sin NaN
+df = df.dropna(subset=['Target_dir'])
+
+# Selección de columnas de entrada
+input_cols = ['Close', 'SMA_Close', 'Return_1D', 'SMA_20', 'SMA_Trend', 'Volatility_10', 'BB_rel_pos']
+target_col = 'Target_dir'
 
 # --------- NORMALIZAR INPUTS Y TARGET ---------
 input_scaler = MinMaxScaler()
 df[input_cols] = input_scaler.fit_transform(df[input_cols])
 
-from sklearn.preprocessing import StandardScaler
-target_scaler = StandardScaler()
-df[[target_col]] = target_scaler.fit_transform(df[[target_col]])
+target_scaler = None
 
 # Guardar scalers
 os.makedirs(os.path.dirname(scaler_save_path), exist_ok=True)
@@ -83,8 +92,8 @@ model(dummy_input)
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-    loss=tf.keras.losses.Huber(delta=1.0),
-    metrics=['mae']
+    loss='binary_crossentropy',
+    metrics=['accuracy']
 )
 model.summary()
 
@@ -123,24 +132,21 @@ val_preds = model.predict(X_val)
 print("Val preds (escalados):", val_preds[:10].flatten())
 
 # Inverse transform
-val_preds_real = target_scaler.inverse_transform(val_preds)
-val_reals_real = target_scaler.inverse_transform(y_val.reshape(-1, 1))
+val_preds_real = val_preds
+val_reals_real = y_val.reshape(-1, 1)
 
-# Direcciones
-pred_dirs = np.sign(val_preds_real[1:] - val_preds_real[:-1])
-real_dirs = np.sign(val_reals_real[1:] - val_reals_real[:-1])
-
-# Aciertos
-correct_dirs = (pred_dirs == real_dirs)
+# Evaluación binaria
+val_preds_binary = (val_preds > 0.5).astype(int)
+correct_dirs = (val_preds_binary.flatten() == val_reals_real.flatten())
 direction_accuracy = correct_dirs.mean()
 
-# Métricas
-mae = np.mean(np.abs(val_reals_real - val_preds_real))
-rmse = np.sqrt(np.mean((val_reals_real - val_preds_real)**2))
+# Métricas de regresión comentadas (no aplican en clasificación binaria)
+# mae = np.mean(np.abs(val_reals_real - val_preds_real))
+# rmse = np.sqrt(np.mean((val_reals_real - val_preds_real)**2))
 
 print(f"\n--- Evaluación ---")
-print(f"MAE: {mae:.4f}")
-print(f"RMSE: {rmse:.4f}")
+# print(f"MAE: {mae:.4f}")
+# print(f"RMSE: {rmse:.4f}")
 print(f"Precisión Dirección: {direction_accuracy*100:.2f}%")
 
 # --------- GUARDAR RESULTADO EXPERIMENTO ---------
@@ -155,8 +161,8 @@ exp_data = pd.DataFrame([{
     "Dropout": dropout_rate,
     "Epochs": epochs,
     "Acc_Direccion(%)": round(direction_accuracy*100, 2),
-    "MAE": round(mae, 6),
-    "RMSE": round(rmse, 6)
+    # "MAE": round(mae, 6),
+    # "RMSE": round(rmse, 6)
 }])
 
 if os.path.exists(experiments_log):
@@ -180,14 +186,14 @@ plt.grid()
 plt.savefig(f"Plots/training_loss_exp{exp_num}.png")
 plt.show()
 
-# --------- PLOT VAL PREDS vs REALS ---------
+# --------- PLOT VAL PREDS vs LABELS (CLASIFICACIÓN BINARIA) ---------
 plt.figure(figsize=(12,5))
-plt.plot(val_reals_real[:100], label='Real')
-plt.plot(val_preds_real[:100], label='Predicted')
-plt.title('Val Predictions vs Real (primeros 100)')
+plt.scatter(range(100), val_reals_real[:100], label='Real (0=baja, 1=sube)', alpha=0.6)
+plt.plot(val_preds_real[:100], label='Predicted (prob)', color='orange')
+plt.title('Val Predictions vs Real Labels (primeros 100)')
 plt.xlabel('Timestep')
-plt.ylabel('Close')
+plt.ylabel('Probabilidad subida')
 plt.legend()
 plt.grid()
-plt.savefig(f"Plots/val_preds_vs_real_exp{exp_num}.png")
+plt.savefig(f"Plots/val_preds_vs_labels_exp{exp_num}.png")
 plt.show()
