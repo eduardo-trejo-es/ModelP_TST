@@ -7,15 +7,16 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from patchtst_tf_model import PatchTST, PatchEmbedding, TransformerEncoder
 from datetime import datetime
+import ta
 
 # --------- CONFIGURACIÓN EXPERIMENTO ---------
-patch_len = 10
-embed_dim = 160
+patch_len = 25
+embed_dim = 256
 n_layers = 3
-dropout_rate = 0.1
-batch_size = 64
+dropout_rate = 0.2
+batch_size = 32
 epochs = 30
-exp_num = 32
+exp_num = 41
 
 # Paths
 csv_path = "OIL_CRUDE/Id90/DataSet_lastPoppingColums.csv"
@@ -39,15 +40,60 @@ rolling_mean = df['Close'].rolling(20).mean()
 rolling_std = df['Close'].rolling(20).std()
 df['BB_rel_pos'] = ((df['Close'] - rolling_mean) / (2 * rolling_std)).fillna(0)
 
-df['Target_diff'] = df['Close'].shift(-1) - df['Close']
-# Target binario: dirección
-df['Target_dir'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-# Asegurar que Target_dir es 0/1 y sin NaN
+# Features técnicas adicionales
+df['Momentum_20'] = df['Close'] - df['SMA_20']
+df['Return_1D_lag1'] = df['Return_1D'].shift(1).fillna(0)
+df['RSI_14'] = ta.momentum.RSIIndicator(close=df['Close'], window=14).rsi().fillna(50)
+
+# --------- FFT ENERGY RATIO FEATURE ---------
+def extract_fft_energy_ratio(series, window=25):
+    result = []
+    for i in range(len(series)):
+        if i < window:
+            result.append(0)
+            continue
+        segment = series[i - window:i]
+        fft_vals = np.abs(np.fft.fft(segment))
+        energy = np.sum(fft_vals)
+        peak_energy = np.max(fft_vals)
+        ratio = peak_energy / energy if energy != 0 else 0
+        result.append(ratio)
+    return result
+
+df['FFT_energy_ratio'] = extract_fft_energy_ratio(df['Close'], window=25)
+
+# Redefinir dirección con umbral mínimo (0.3%)
+df['Return_1D'] = df['Close'].pct_change().fillna(0)
+df['Target_dir'] = np.where(df['Return_1D'] > 0.003, 1,
+                    np.where(df['Return_1D'] < -0.003, 0, np.nan))
 df = df.dropna(subset=['Target_dir'])
 
+# Guardar CSV con features técnicas para evaluación posterior
+os.makedirs("OIL_CRUDE/Id90/FEATURES_DF", exist_ok=True)
+df.to_csv(f"OIL_CRUDE/Id90/FEATURES_DF/DataSet_with_features_exp{exp_num}.csv", index=False)
+print(f"Dataset con features guardado en: OIL_CRUDE/Id90/FEATURES_DF/DataSet_with_features_exp{exp_num}.csv")
+
+# --- Distribución de clases y balanceo manual opcional ---
+"""
+print("Distribución de clases Target_dir (después del filtrado):")
+print(df['Target_dir'].value_counts(normalize=True))
+
+# Balanceo manual opcional si hay fuerte desbalance
+counts = df['Target_dir'].value_counts()
+min_class = counts.min()
+df_balanced = pd.concat([
+    df[df['Target_dir'] == 0].sample(min_class, random_state=42),
+    df[df['Target_dir'] == 1].sample(min_class, random_state=42)
+])
+df = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle
+print("Distribución balanceada aplicada:")
+print(df['Target_dir'].value_counts(normalize=True))
+"""
+
 # Selección de columnas de entrada
-input_cols = ['Close', 'SMA_Close', 'Return_1D', 'SMA_20', 'SMA_Trend', 'Volatility_10', 'BB_rel_pos']
-target_col = 'Target_dir'
+input_cols = ['Close', 'SMA_Close', 'Return_1D', 'SMA_20', 'SMA_Trend',
+              'Volatility_10', 'BB_rel_pos', 'Momentum_20', 'Return_1D_lag1', 'RSI_14', 'FFT_energy_ratio']
+target_col = 'Return_1D'
 
 # --------- NORMALIZAR INPUTS Y TARGET ---------
 input_scaler = MinMaxScaler()
@@ -92,8 +138,8 @@ model(dummy_input)
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-    loss='binary_crossentropy',
-    metrics=['accuracy']
+    loss='mean_squared_error',
+    metrics=['mae']
 )
 model.summary()
 
@@ -116,12 +162,23 @@ callbacks = [
     tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True)
 ]
 
+
+# --------- CALCULAR PESOS DE CLASE ---------
+"""
+from sklearn.utils import class_weight
+
+cw = class_weight.compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train)
+cw_dict = {0: cw[0], 1: cw[1]}
+print(f"Pesos aplicados a clases: {cw_dict}")
+"""
+
 # --------- ENTRENAR ---------
 history = model.fit(
     train_dataset,
     validation_data=val_dataset,
     epochs=epochs,
-    callbacks=callbacks
+    callbacks=callbacks,
+    # class_weight=cw_dict
 )
 
 model.export(model_save_path)
@@ -136,8 +193,14 @@ val_preds_real = val_preds
 val_reals_real = y_val.reshape(-1, 1)
 
 # Evaluación binaria
+"""
 val_preds_binary = (val_preds > 0.5).astype(int)
 correct_dirs = (val_preds_binary.flatten() == val_reals_real.flatten())
+direction_accuracy = correct_dirs.mean()
+"""
+pred_dir = np.sign(val_preds.flatten())
+real_dir = np.sign(val_reals_real.flatten())
+correct_dirs = (pred_dir == real_dir)
 direction_accuracy = correct_dirs.mean()
 
 # Métricas de regresión comentadas (no aplican en clasificación binaria)
@@ -190,9 +253,9 @@ plt.show()
 plt.figure(figsize=(12,5))
 plt.scatter(range(100), val_reals_real[:100], label='Real (0=baja, 1=sube)', alpha=0.6)
 plt.plot(val_preds_real[:100], label='Predicted (prob)', color='orange')
-plt.title('Val Predictions vs Real Labels (primeros 100)')
+plt.title('Val Predicted Return vs Real Return (primeros 100)')
 plt.xlabel('Timestep')
-plt.ylabel('Probabilidad subida')
+plt.ylabel('Return')
 plt.legend()
 plt.grid()
 plt.savefig(f"Plots/val_preds_vs_labels_exp{exp_num}.png")

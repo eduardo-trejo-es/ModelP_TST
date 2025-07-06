@@ -1,6 +1,8 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+import numpy as np
+from scipy.fft import fft
 
 @tf.keras.utils.register_keras_serializable(package="Custom", name="PatchEmbedding")
 class PatchEmbedding(layers.Layer):
@@ -57,19 +59,20 @@ class PatchTST(tf.keras.Model):
         self.norm = layers.LayerNormalization(epsilon=1e-6)
         self.head = keras.Sequential([
             layers.Dense(32, activation='relu'),
-            layers.Dropout(0.2),
-            layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(1e-4))
+            layers.Dense(1, activation=None)
         ])
 
     def call(self, inputs, training=False):
         x = self.embedding(inputs)
         for encoder in self.encoder_layers:
             x = encoder(x, training=training)
-        x = tf.reduce_mean(x, axis=1)  # Average over all patches
+        x = tf.keras.layers.Flatten()(x)  # Retiene toda la variabilidad entre patches
         x = self.norm(x)
         return self.head(x)
 
-# Example to instantiate
-# model = PatchTST(seq_len=80, patch_len=25, input_dim=12, dropout_rate=0.3)
-# output = model(tf.random.normal((8, 80, 12)))
-# print(output.shape)  # -> (8, 1)
+
+# Forzar construcción del modelo para mostrar shapes completos en summary()
+if __name__ == "__main__":
+    model = PatchTST(seq_len=80, patch_len=25, input_dim=12, embed_dim=256, n_layers=3, n_heads=4, dropout_rate=0.2)
+    model.build(input_shape=(None, 80, 12))
+    model.summary()
